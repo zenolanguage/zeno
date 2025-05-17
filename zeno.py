@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 import typing
+import traceback
 from dataclasses import dataclass
 from enum import IntEnum
 
@@ -189,18 +190,54 @@ def evaluate_code(code, env, file) -> Value:
       env.table[name.data.data] = Env_Entry(evaluate_code(value_code, env, file))
       return value_void
     elif op.data == "$code":
+      def expand_inserts(code):
+        if code.kind == Code_Kind.TUPLE:
+          for i, code2 in enumerate(code.data):
+            if code2.kind == Code_Kind.TUPLE:
+              op_code = code2.data[0]
+              if op_code.kind == Code_Kind.IDENTIFIER and op_code.data == "$insert":
+                value = evaluate_code(code2, env, file)
+                if value.type != type_code: raise SyntaxError(f"{file}[{code2.location}] $code expects an argument of type CODE.")
+                code.data[i] = value.data
+              else:
+                code.data[i] = expand_inserts(code2)
+        return code
+
       assert len(args) == 1
       code = args[0]
+      code = expand_inserts(code)
       return Value(type_code, code)
     elif op.data == "$insert":
-      assert len(args) == 1
-      code = args[0]
+      assert len(args) >= 1
+      fmt_code, *codes = args
+      fmt = fmt_code.data[1:-1]
+      # fmt = evaluate_code(fmt_code, env, file)
+      i = 0
+      argi = 0
+      src = ""
+      while i < len(fmt):
+        if fmt[i] == '%':
+          if i + 1 >= len(fmt) or fmt[i + 1] != '%':
+            if argi >= len(codes): raise SyntaxError(f"{file}[{op.location}] $insert was given the incorrect amount of expressions.")
+            src += code_as_string(codes[argi])
+            i += 1
+            argi += 1
+            continue
+          i += 1
+        src += fmt[i]
+        i += 1
+      code, next_pos = parse_code(src, 0, file)
+      if code is None: raise SyntaxError(f"{file}[{op.location}] $insert was given no expressions.")
+      if parse_code(src, next_pos, file)[0] is not None: raise SyntaxError(f"{file}[{code.location}] $insert expects one resultant expression.")
       value = evaluate_code(code, env, file)
-      if value.type != type_code: raise SyntaxError(f"{file}[{code.location}] $insert expects a value of type CODE.")
+      if value.type != type_code: raise SyntaxError(f"{file}[{code.location}] $insert expects values of type CODE.")
       return evaluate_code(value.data, env, file)
+    elif op.data == "$compile-log":
+      print(" ".join(map(value_as_string, [evaluate_code(arg, env, file) for arg in args])))
+      return value_void
 
   proc = evaluate_code(op, env, file)
-  pargs = args # todo: decide if code should be evaluated based on type of proc.
+  pargs = args # todo: decide if code should be evaluated based on type of params in proc.
   return proc(*pargs)
 
 def value_as_string(value) -> str:
@@ -222,9 +259,10 @@ def repl():
       if code is None: break
       pos = next_pos
       # print(code_as_string(code))
-      try: value = evaluate_code(code, env, file)
-      except Exception as e: print(e); break
-      if value != value_void: print("=>", value_as_string(value))
+      try:
+        value = evaluate_code(code, env, file)
+        if value != value_void: print("=>", value_as_string(value))
+      except Exception as e: print(e, traceback.format_exc()); break
 
 def compile(file):
   with open(file) as f: src = f.read()
