@@ -2,6 +2,7 @@
 
 require 'io'
 require 'arg'
+require 'hashmap'
 require 'sequence'
 require 'C.ctype'
 require 'iterators'
@@ -89,6 +90,7 @@ global function parse_code(s: string, p: uinteger, file: string): (*Code, uinteg
       if s[p] ~= string.byte('(', 1) and s[p] ~= string.byte(')', 1) then
         implictness:push(true)
         local tuple = default_allocator:new(Code)
+        tuple.location = start
         tuple.kind = Code_Kind.TUPLE
         codes:push(tuple)
       end
@@ -100,6 +102,7 @@ global function parse_code(s: string, p: uinteger, file: string): (*Code, uinteg
       p = p + 1
       implictness:push(false)
       local tuple = default_allocator:new(Code)
+      tuple.location = start
       tuple.kind = Code_Kind.TUPLE
       codes:push(tuple)
     elseif s[p] == string.byte(')', 1) then
@@ -123,9 +126,35 @@ global function parse_code(s: string, p: uinteger, file: string): (*Code, uinteg
         local popped = codes:pop()
         codes[#codes].data.as_tuple:push(popped)
       end
+    elseif s[p] == string.byte("'", 1) then
+      p = p + 1
+      local code, next_pos = parse_code(s, p, file)
+      if code == nilptr then
+        io.stderr:writef("%s[%d] You attempted to take the $code of nothing.\n", file, start)
+        return nilptr, p
+      end
+      p = next_pos
+      local tuple = default_allocator:new(Code)
+      tuple.location = start
+      tuple.kind = Code_Kind.TUPLE
+      local identifier = default_allocator:new(Code)
+      identifier.location = start
+      identifier.kind = Code_Kind.IDENTIFIER
+      identifier.data.as_atom = "$code"
+      tuple.data.as_tuple:push(identifier)
+      tuple.data.as_tuple:push(code)
+      if #codes > 0 then codes[#codes].data.as_tuple:push(tuple) else codes:push(tuple) end
+    elseif C.isdigit(s[p]) ~= 0 then
+      while p <= #s and C.isdigit(s[p]) ~= 0 do p = p + 1 end
+      local integer = default_allocator:new(Code)
+      integer.location = start
+      integer.kind = Code_Kind.INTEGER
+      integer.data.as_atom = s:subview(start, p - 1)
+      if #codes > 0 then codes[#codes].data.as_tuple:push(integer) else codes:push(integer) end
     else
       while p <= #s and C.isspace(s[p]) == 0 and s[p] ~= string.byte('(', 1) and s[p] ~= string.byte(')', 1) and s[p] ~= string.byte(';', 1) do p = p + 1 end
       local identifier = default_allocator:new(Code)
+      identifier.location = start
       identifier.kind = Code_Kind.IDENTIFIER
       identifier.data.as_atom = s:subview(start, p - 1)
       if #codes > 0 then codes[#codes].data.as_tuple:push(identifier) else codes:push(identifier) end
@@ -174,8 +203,156 @@ global function parse_code(s: string, p: uinteger, file: string): (*Code, uinteg
   return result, p
 end
 
+global Type_Kind = @enum{
+  TYPE = 0,
+  CODE,
+  NULL,
+  NORETURN,
+  VOID,
+  BOOL,
+  ANYTYPE,
+  ANYOPAQUE,
+  ANYERROR,
+  COMPTIME_INTEGER,
+  COMPTIME_FLOAT,
+  ERROR_SET,
+  ERROR_UNION,
+  INTEGER,
+  FLOAT,
+  OPTIONAL,
+  POINTER,
+  ARRAY,
+  MATRIX,
+  MAP,
+  STRUCT,
+  UNION,
+  ENUM,
+  PROCEDURE,
+}
+
+global Type = @record{
+  kind: Type_Kind,
+}
+
+global type_code = &Type{kind = Type_Kind.CODE}
+global type_void = &Type{kind = Type_Kind.VOID}
+global type_comptime_integer = &Type{kind = Type_Kind.COMPTIME_INTEGER}
+
+global Value_Data = @union{
+  as_code: *Code,
+  as_type: *Type,
+  as_comptime_integer: integer,
+}
+
+global Value = @record{
+  type: *Type,
+  data: Value_Data,
+}
+
+function Value:__tostring(): string
+  if self.type == type_code then return tostring(self.data.as_code) end
+  if self.type == type_comptime_integer then return tostring(self.data.as_comptime_integer) end
+  error("Unimplemented\n")
+  return ""
+end
+
+global value_void = &Value{type = type_void}
+
+global Env_Entry = @record{
+  value: *Value,
+}
+
+global Env = @record{
+  parent: *Env,
+  table: hashmap(string, Env_Entry),
+}
+
+function Env:find(key: string): *Env_Entry
+  if self.table:has(key) then return self.table:peek(key) end
+  if self.parent then return self.parent:find(key) end
+  return nilptr
+end
+
+global function evaluate_code(code: *Code, env: *Env, file: string): (*Value, boolean)
+  switch code.kind do
+  case Code_Kind.IDENTIFIER then
+    local entry = env:find(code.data.as_atom)
+    if entry == nilptr then
+      io.stderr:writef("%s[%d] I failed to find \"%s\" in the environment.\n", file, code.location, code.data.as_atom)
+      return nilptr, false
+    end
+    return entry.value, true
+  case Code_Kind.INTEGER then
+    local value = default_allocator:new(Value)
+    value.type = type_comptime_integer
+    value.data.as_comptime_integer = tointeger(code.data.as_atom)
+    return value, true
+  case Code_Kind.TUPLE then
+    local s = (@span(pointer))(code.data.as_tuple):as(@*Code)
+    if #s == 0 then
+      io.stderr:writef("%s[%d] You tried to call a procedure without telling me the name of it.\n", file, code.location)
+      return nilptr, false
+    end
+    local op_code, args_code = s[0], s:sub(1, #s)
+    if op_code.kind == Code_Kind.IDENTIFIER then
+      if op_code.data.as_atom == "$define" then
+        if #args_code ~= 2 then
+          io.stderr:writef("%s[%d] $define expects two arguments (for now).\n", file, op_code.location)
+          return nilptr, false
+        end
+        local name_code, value_code = args_code[0], args_code[1]
+        local name, success = evaluate_code(name_code, env, file)
+        if not success then return nilptr, false end
+        if name.type ~= type_code or name.data.as_code.kind ~= Code_Kind.IDENTIFIER then
+          io.stderr:writef("%s[%d] $define expects argument one to be of type CODE.\n", file, name_code.location)
+          return nilptr, false
+        end
+        local name_str = name.data.as_code.data.as_atom
+        if env.table:has(name_str) then
+          io.stderr:writef("%s[%d] You attempted to redefine symbol \"%s\".\n", file, name_code.location, name_str)
+          return nilptr, false
+        end
+        local value, success = evaluate_code(value_code, env, file)
+        if not success then return nilptr, false end
+        env.table[name_str] = Env_Entry{value = value}
+        return value_void, true
+      elseif op_code.data.as_atom == "$code" then
+        if #args_code ~= 1 then
+          io.stderr:writef("%s[%d] $code expects one argument.\n", file, op_code.location)
+          return nilptr, false
+        end
+        local value = default_allocator:new(Value)
+        value.type = type_code
+        value.data.as_code = args_code[0]
+        return value, true
+      elseif op_code.data.as_atom == "$insert" then
+        if #args_code ~= 1 then
+          io.stderr:writef("%s[%d] $insert expects one argument of type CODE.\n", file, op_code.location)
+          return nilptr, false
+        end
+        local value, success = evaluate_code(args_code[0], env, file)
+        if not success then return nilptr, false end
+        if value.type ~= type_code then
+          io.stderr:writef("%s[%d] Your first argument of $insert did not evaluate to type CODE.\n", file, op_code.location)
+          return nilptr, false
+        end
+        value, success = evaluate_code(value.data.as_code, env, file)
+        if not success then return nilptr, false end
+        return value, true
+      end
+    end
+    local proc, success = evaluate_code(op_code, env, file)
+    if not success then return nilptr, false end
+    error("Unimplemented")
+    return nilptr, false
+  end
+  error("How did you get here? (compiler bug)")
+  return nilptr, false
+end
+
 global function repl()
   local file = "repl"
+  local env: Env
   while true do
     io.stdout:write("> ")
     local src <close> = io.stdin:read()
@@ -186,7 +363,10 @@ global function repl()
       local code, next_pos = parse_code(src, pos, file)
       if code == nilptr then break end
       pos = next_pos
-      print(code)
+      -- print(code)
+      local value, success = evaluate_code(code, &env, file)
+      if not success then break end
+      if value ~= value_void then print($value) end
     end
   end
 end
@@ -199,11 +379,18 @@ global function compile(file: string)
   end
   local src <close> = f:read('a')
   local pos = 1
+  local env: Env
   while true do
     local code, next_pos = parse_code(src, pos, file)
     if code == nilptr then break end
     pos = next_pos
-    print(code)
+    -- print(code)
+    local value, success = evaluate_code(code, &env, file)
+    if not success then error("compilation failed") end
+  end
+  io.stdout:writef("=====Environment=====\n")
+  for k,v in pairs(env.table) do
+    io.stdout:writef("%s: %s\n", k, v.value)
   end
 end
 
