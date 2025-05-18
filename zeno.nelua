@@ -95,6 +95,7 @@ global function parse_code(s: string, p: uinteger, file: string): (*Code, uinteg
     end
 
     start = p
+    local top_level_explicit_was_closed = false
     if s[p] == string.byte('(', 1) then
       p = p + 1
       implictness:push(false)
@@ -116,7 +117,8 @@ global function parse_code(s: string, p: uinteger, file: string): (*Code, uinteg
         io.stderr:writef("%s[%d] You have an extraneous closing parenthesis.\n", file, start)
         return nilptr, p
       end
-      implictness:pop()
+      local was_implicit = implictness:pop()
+      top_level_explicit_was_closed = not was_implicit and #implictness == 0
       if #codes > 1 then
         local popped = codes:pop()
         codes[#codes].data.as_tuple:push(popped)
@@ -130,11 +132,29 @@ global function parse_code(s: string, p: uinteger, file: string): (*Code, uinteg
     end
 
     local peek = p
-    while peek <= #s and C.isspace(s[peek]) ~= 0 and s[peek] ~= string.byte('\n', 1) and s[peek] ~= string.byte(';', 1) do peek = peek + 1 end
+    while peek <= #s and (C.isspace(s[peek]) ~= 0 or s[peek] == string.byte(')', 1)) and s[peek] ~= string.byte('\n', 1) and s[peek] ~= string.byte(';', 1) do peek = peek + 1 end
     local last_exp_of_line = peek > #s or s[peek] == string.byte('\n', 1) or s[peek] == string.byte(';', 1)
+    local beginning_of_next_line = peek
+    while true do
+      while peek <= #s and C.isspace(s[peek]) ~= 0 do
+        if s[peek] == string.byte('\n', 1) then
+          beginning_of_next_line = peek + 1
+        end
+        peek = peek + 1
+      end
+      if peek <= #s and s[peek] == string.byte(';', 1) then
+        while peek <= #s and s[peek] ~= string.byte('\n', 1) do peek = peek + 1 end
+        continue
+      end
+      break
+    end
+    local next_indent = peek - beginning_of_next_line
     if last_exp_of_line then
       if #implictness > 0 and implictness[#implictness] then
         implictness:pop()
+      end
+      while #indents > 0 and next_indent <= indents[#indents] do
+        indents:pop()
         if #codes > 1 then
           local popped = codes:pop()
           codes[#codes].data.as_tuple:push(popped)
@@ -142,7 +162,7 @@ global function parse_code(s: string, p: uinteger, file: string): (*Code, uinteg
       end
     end
 
-    if #implictness == 0 then break end
+    if #implictness == 0 and (top_level_explicit_was_closed or (#indents == 0 or next_indent <= indents[1])) then break end
   end
   if #implictness ~= 0 then
     io.stderr:writef("%s[%d] You are missing a closing parenthesis.\n", file, p)
