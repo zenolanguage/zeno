@@ -243,9 +243,67 @@ code_as_string :: proc(code: ^Code) -> string {
   return ""
 }
 
+Type_Kind :: enum {
+  TYPE,
+  CODE,
+  NULL,
+  NORETURN,
+  VOID,
+  BOOL,
+  ANYTYPE,
+  ANYOPAQUE,
+  ANYERROR,
+  COMPTIME_INTEGER,
+  COMPTIME_FLOAT,
+  ERROR_SET,
+  ERROR_UNION,
+  INTEGER,
+  FLOAT,
+  OPTIONAL,
+  POINTER,
+  ARRAY,
+  MATRIX,
+  MAP,
+  STRUCT,
+  UNION,
+  ENUM,
+  PROCEDURE,
+}
+
+Type :: struct {
+  kind: Type_Kind,
+}
+
+Value :: struct {
+  type: ^Type,
+  using data: struct #raw_union {
+    as_code: ^Code,
+    as_type: ^Type,
+  },
+}
+
+Env_Entry :: struct {
+  value: ^Value,
+}
+
+Env :: struct {
+  parent: ^Env,
+  table: map[string]Env_Entry,
+}
+
+Evaluation_Error :: enum {
+  NONE = 0,
+}
+
+evaluate_code :: proc(code: ^Code, env: ^Env, file: string) -> (^Value, Evaluation_Error) {
+  assert(false, "Unimplemented.")
+  return nil, .NONE
+}
+
 repl :: proc() {
   file := "repl"
   line_buffer: [256]u8 = ---
+  env: Env
   for {
     fmt.printf("> ")
     if n, err := os.read(os.stdin, line_buffer[:]); err == nil {
@@ -258,7 +316,10 @@ repl :: proc() {
         code, next_pos := parse_code(line, pos, file)
         if code == nil do break
         pos = next_pos
-        fmt.printf("%s\n", code_as_string(code))
+        // fmt.printf("%s\n", code_as_string(code))
+        value, err := evaluate_code(code, &env, file)
+        if err != .NONE do break
+        // if value != value_void do fmt.printf("%s\n", value_as_string(value))
       }
     }
   }
@@ -269,11 +330,16 @@ compile :: proc(file: string) {
   if !success do die("I failed to find '%s' on your drive. Maybe you need to quote the entire path?\n", file)
 
   pos := 0
+  env: Env
   for {
     code, next_pos := parse_code(string(src), pos, file)
     if code == nil do break
     pos = next_pos
-    fmt.printf("%s\n", code_as_string(code))
+    value, err := evaluate_code(code, &env, file)
+    if err != .NONE {
+      fmt.eprintf("%s\n", err)
+      break
+    }
   }
 }
 
