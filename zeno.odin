@@ -4,6 +4,11 @@ import "core:os"
 import "core:fmt"
 import "core:strings"
 
+die :: proc(format: string, args: ..any) -> ! {
+  fmt.eprintf(format, ..args)
+  os.exit(1)
+}
+
 Code_Kind :: enum {
   IDENTIFIER,
   KEYWORD,
@@ -50,7 +55,7 @@ repl :: proc() {
 
 compile :: proc(file: string) {
   src, success := os.read_entire_file(file)
-  if !success do fmt.panicf("I failed to find '%s' on your drive. Maybe you need to quote the entire path?\n", file)
+  if !success do die("I failed to find '%s' on your drive. Maybe you need to quote the entire path?\n", file)
 
   pos := 0
   for {

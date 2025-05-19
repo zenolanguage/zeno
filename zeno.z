@@ -1,9 +1,2 @@
-x
-  y
-    z
-  w
-  r
-    t
-y
-  u
-    v
+$define 'x 5
+$assert ($operator '== ($operator '+ x x) 10)
