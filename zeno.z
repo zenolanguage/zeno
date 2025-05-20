@@ -1,2 +1,7 @@
-$define 'x 5
-$assert ($operator '== ($operator '+ x x) 10)
+using (import "basic")
+
+proc main () void
+  print "Hello, %!\n" "world"
+
+:: compiler (import)
+compiler.create-executable (basename *current-file* ".z") main
