@@ -24,9 +24,10 @@
 ; $return, $return-caller
 ; $defer, $defer-caller
 ; $if, $for, $while
-; $code, $insert, $compiles?
-; $type, $type-of, $cast
 ; $proc, $macro, $foreign, $block
+; $code, $code-of, $code-node-of
+; $type, $type-of, $type-info-of, $cast
+; $quote, $unquote, $insert, $compiles?
 ; $rest, $splice
 ; $using, $import
 ; $operator
