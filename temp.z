@@ -1,0 +1,8 @@
+$using ($import "syntax/alpha")
+
+:= x true
+block
+  : x Bool
+  = x (cast Bool 1)
+  = x (! x)
+assert x

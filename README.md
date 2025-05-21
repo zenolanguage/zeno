@@ -12,3 +12,24 @@
 - Zero is initialization.
 - The user will be given the path to the compiler at compile time.
 - It’s not just a compiler — it’s a programmable interpreter that compiles.
+
+## Builtins
+
+```z
+; $define, $define-caller
+; $declare, $declare-caller
+; $assign, $assign-caller
+; $continue, $continue-caller
+; $break, $break-caller
+; $return, $return-caller
+; $defer, $defer-caller
+; $if, $for, $while
+; $code, $insert, $compiles?
+; $type, $type-of, $cast
+; $proc, $macro, $foreign, $block
+; $rest, $splice
+; $using, $import
+; $operator
+; $assert
+; $compiler
+```
