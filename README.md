@@ -30,7 +30,7 @@
 ; $quote, $unquote, $insert, $compiles?
 ; $rest, $splice
 ; $using, $import
-; $operator
+; $operator, $field
 ; $assert
 ; $compiler
 ```
