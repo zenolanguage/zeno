@@ -195,14 +195,28 @@ def type_as_string(ty:Type) -> str:
   if ty.kind == Type_Kind.NORETURN: return "($type ($quote NORETURN))"
   if ty.kind == Type_Kind.VOID: return "($type ($quote VOID))"
   if ty.kind == Type_Kind.BOOL: return "($type ($quote BOOL))"
+  if ty.kind == Type_Kind.ANYTYPE: return "($type ($quote ANYTYPE))"
   if ty.kind == Type_Kind.COMPTIME_INTEGER: return "($type ($quote COMPTIME_INTEGER))"
   if ty.kind == Type_Kind.COMPTIME_FLOAT: return "($type ($quote COMPTIME_FLOAT))"
-  raise NotImplementedError()
+  if ty.kind == Type_Kind.PROCEDURE: return "$(type ($quote PROCEDURE) #parameter_types ... #return_type ... #is_varargs ...)"
+  raise NotImplementedError(ty.kind)
+
+@dataclass
+class Procedure:
+  body: typing.Tuple["Value"]
+
+  def __call__(self, *args: typing.Tuple["Value"], **kwargs) -> "Value":
+    env = Env(kwargs["env"], {})
+    for code in self.body:
+      if code.data.data[0].data == "$return":
+        return evaluate_code(code.data.data[1], env)
+      evaluate_code(code.data, env)
+    return value_void
 
 @dataclass
 class Value:
   type: Type
-  data: typing.Optional[typing.Union[Type, Code, int, float, str, typing.Callable[..., "Value"]]]
+  data: typing.Optional[typing.Union[Type, Code, int, float, str, typing.Callable[..., "Value"], Procedure]]
 
 value_void = Value(type_void, None)
 value_true = Value(type_bool, None)
@@ -245,19 +259,26 @@ def evaluate_code(code:Code, env:Env, is_inside_quote=False) -> Value:
   op_code, *arg_codes = code.data
   op = evaluate_code(op_code, env, is_inside_quote)
   if op.type.kind not in [Type_Kind.PROCEDURE, Type_Kind.MACRO]: raise Evaluation_Error(f"You tried to call something [{code_as_string(op_code)}] that was not a procedure or macro.", op_code)
-  if len(op.type.parameter_types) != len(arg_codes): raise Evaluation_Error(f"Arity mismatch of procedure/macro \"{code_as_string(op_code)}\". Expected {len(op.type.parameter_types)} arguments, got {len(arg_codes)}.", op_code)
-  args = [evaluate_code(arg_code, env, is_inside_quote) if op.type.kind == Type_Kind.PROCEDURE or op.type.parameter_types[i].kind != Type_Kind.CODE else arg_code for i, arg_code in enumerate(arg_codes)]
+  if op.type.is_varargs:
+    if len(op.type.parameter_types) > len(arg_codes): raise Evaluation_Error(f"Arity mismatch of procedure/macro \"{code_as_string(op_code)}\". Expected at least {len(op.type.parameter_types)} arguments, got {len(arg_codes)}.", op_code)
+  else:
+    if len(op.type.parameter_types) != len(arg_codes): raise Evaluation_Error(f"Arity mismatch of procedure/macro \"{code_as_string(op_code)}\". Expected {len(op.type.parameter_types)} arguments, got {len(arg_codes)}.", op_code)
+  args = [evaluate_code(arg_code, env, is_inside_quote) if op.type.kind == Type_Kind.PROCEDURE or (i < len(op.type.parameter_types) and op.type.parameter_types[i].kind != Type_Kind.CODE) else Value(type_code, arg_code) for i, arg_code in enumerate(arg_codes)]
+  for i, arg in enumerate(args):
+    if i < len(op.type.parameter_types) and op.type.parameter_types[i].kind != Type_Kind.ANYTYPE and op.type.parameter_types[i] != arg.type: raise Evaluation_Error(f"The procedure/macro \"{code_as_string(op_code)}\" argument {i} expected type \"{type_as_string(op.type.parameter_types[i])}\" but found type \"{type_as_string(arg.type)}\".", op_code)
   result_value = op.data(*args, env=env, is_inside_quote=is_inside_quote)
   # TODO(dfra): this seems a bit hacky. Evaluate + convert to string + reparse feels icky.
   if op == default_env.find("$quote").value:
-    def visit(code:Code) -> None:
+    def visit(code_value:Value) -> None:
+      assert code_value.type == type_code
+      code = code_value.data
       if code.kind == Code_Kind.TUPLE:
-        for c in code.data: visit(c)
+        for c in code.data: visit(Value(type_code, c))
         if len(code.data) > 0 and evaluate_code(code.data[0], env, is_inside_quote) == default_env.find("$unquote").value:
           new_code, _ = parse_code(value_as_string(evaluate_code(code.data[1], env, is_inside_quote=True)), 0, no_implicit_parentheses=True)
           code.kind = new_code.kind
           code.data = new_code.data
-    visit(result_value.data)
+    visit(result_value)
   return evaluate_code(result_value.data, env) if op.type.kind == Type_Kind.MACRO and op.type.return_type == type_code and op != default_env.find("$quote").value else result_value
 
 def value_as_string(value:Value) -> str:
@@ -268,7 +289,7 @@ def value_as_string(value:Value) -> str:
   if value.type.kind == Type_Kind.VOID: return f"($cast {type_as_string(type_void)} 0)"
   if value.type.kind == Type_Kind.BOOL: return f"($cast {type_as_string(type_bool)} {'1' if value == value_true else '0'})"
   if value.type.kind in [Type_Kind.COMPTIME_INTEGER, Type_Kind.COMPTIME_FLOAT]: return str(value.data)
-  raise NotImplementedError()
+  raise NotImplementedError(value.type.kind)
 
 def define(name:Value, value:Value, **kwargs) -> Value:
   env = kwargs["env"]
@@ -277,17 +298,34 @@ def define(name:Value, value:Value, **kwargs) -> Value:
   env.table[name.data.data] = Env_Entry(value=value)
   return value_void
 
-def quote(code:Code, **kwargs) -> Value:
-  return Value(type_code, code)
+def quote(code_value:Value, **kwargs) -> Value:
+  return code_value
 
-def unquote(code:Code, **kwargs) -> Value:
-  if not kwargs["is_inside_quote"]: raise Evaluation_Error(f"You can't $unquote outside of a $quote expression.", code)
-  return Value(type_code, code)
+def unquote(code_value:Value, **kwargs) -> Value:
+  if not kwargs["is_inside_quote"]: raise Evaluation_Error(f"You can't $unquote outside of a $quote expression.", code_value.data)
+  return code_value
+
+def proc(parameters_tuple:Value, return_type:Type, *body, **kwargs) -> Value:
+  types = []
+  for ty in parameters_tuple.data.data: types.append(True)
+  return Value(Type_Procedure(Type_Kind.PROCEDURE, types, return_type, False), Procedure(body))
+
+def type_(type_kind:Value, *args, **kwargs) -> Value:
+  assert type_kind.type == type_code
+  type_kind = type_kind.data
+  if type_kind.kind != Code_Kind.IDENTIFIER: raise Evaluation_Error(f"$type argument 'kind' expects an identifier.", type_kind)
+  if type_kind.data == "TYPE": return Value(type_type, type_type)
+  if type_kind.data == "VOID": return Value(type_type, type_void)
+  if type_kind.data == "NULL": return Value(type_type, type_null)
+  if type_kind.data == "COMPTIME_INTEGER": return Value(type_type, type_comptime_integer)
+  raise NotImplementedError(type_kind.data)
 
 default_env = Env(None, {
   "$define": Env_Entry(value=Value(get_procedure_type([type_code, type_anytype], type_void, False), define)),
   "$quote": Env_Entry(value=Value(get_macro_type([type_code], type_code, False), quote)),
   "$unquote": Env_Entry(value=Value(get_macro_type([type_code], type_code, False), unquote)),
+  "$proc": Env_Entry(value=Value(get_macro_type([type_code, type_type], type_anytype, True), proc)),
+  "$type": Env_Entry(value=Value(get_procedure_type([type_code], type_type, True), type_)),
 })
 
 def repl() -> None:
