@@ -1,3 +1,0 @@
-$define 'x
-  $proc () ($type 'COMPTIME_INTEGER) ($return 5)
-x
