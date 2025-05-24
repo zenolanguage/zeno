@@ -19,10 +19,11 @@
 ; $define, $define-caller
 ; $declare, $declare-caller
 ; $assign, $assign-caller
-; $continue, $continue-caller
+; $field, $field-caller
 ; $break, $break-caller
-; $return, $return-caller
+; $continue, $continue-caller
 ; $defer, $defer-caller
+; $return, $return-caller
 ; $if, $for, $while
 ; $proc, $macro, $foreign, $block
 ; $code, $code-of, $code-node-of
@@ -30,7 +31,7 @@
 ; $quote, $unquote, $insert, $compiles?
 ; $rest, $splice
 ; $using, $import
-; $operator, $field
+; $operator
 ; $assert
 ; $compiler
 ```
