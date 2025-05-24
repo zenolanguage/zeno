@@ -11,7 +11,7 @@
 - All programs can/should be freestanding.
 - Zero is initialization.
 - The user will be given the path to the compiler at compile time.
-- It’s not just a compiler — it’s a programmable interpreter that compiles.
+- Compile-time variables modify what code is generated throughout interpretation of the program and are compiled out of the native executable.
 
 ## Builtins
 

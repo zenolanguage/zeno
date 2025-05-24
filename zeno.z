@@ -1,0 +1,46 @@
+$using ($import "syntax/alpha") #only '(Any Type Void Bool U32 String ^ [dynamic] proc macro struct union enum return `return not)
+
+proc Result (T : Type | E : Type) Type
+  union Inner_Data
+    value T
+    error E
+  struct Inner
+    #using Inner_Data
+    ok Bool
+  return Inner
+
+macro return-ok (value : Any) Void
+  `return '(#value ,value #ok ,true)
+
+macro return-err (error : Any) Void
+  `return '(#error ,error #ok ,false)
+
+macro try (result : Any) ($type-of result.value)
+  if result.ok (return result.value) (`return result)
+
+enum Code_Kind
+  IDENTIFIER
+  KEYWORD
+  INTEGER
+  FLOAT
+  STRING
+  TUPLE
+
+union Code_Data
+  as_string String
+  as_tuple ([dynamic] (^ Code))
+
+struct Code
+  kind Code_Kind
+  #using Code_Data
+
+struct Parse_Result
+  code (^ Code)
+  next_pos U32
+
+struct Parse_Error
+  message String
+  location U32
+
+proc Code/parse (s : String | p : U32) (Result Parse_Result Parse_Error)
+  return-err '(#message "Unimplemented." #location ,p)
