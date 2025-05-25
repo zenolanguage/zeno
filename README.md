@@ -31,6 +31,7 @@
 ; $quote, $unquote, $insert, $compiles?
 ; $rest, $splice
 ; $using, $import
+; $address-of, $contents-of
 ; $operator
 ; $assert
 ; $compiler
