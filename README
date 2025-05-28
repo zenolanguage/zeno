@@ -19,14 +19,13 @@ Requirements
 ------------
 
 * c99 compiler
-* make
-* git
 
-Build and Run
+Building
 --------
 
 ```sh
-make run [ARGS="file.z"]
+cc -o zeno zeno.c # unix
+cl zeno.c # windows
 ```
 
 Builtins
