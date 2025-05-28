@@ -19,13 +19,14 @@ Requirements
 ------------
 
 * c99 compiler
+* make
+* git
 
-Building
+Build and Run
 --------
 
-```console
-$ cc -o zeno zeno.c # unix
-$ cl zeno.c # windows
+```sh
+make run [ARGS="file.z"]
 ```
 
 Builtins
@@ -52,6 +53,6 @@ Builtins
 * $compiler
 
 Inspired by
-===========
+-----------
 
 * fasm, C, D, Jai, Odin, Zig, Fennel, Nelua, Terra

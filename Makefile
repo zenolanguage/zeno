@@ -1,12 +1,20 @@
-CC ?= cc
-CFLAGS ?= -std=c99 -Wall -Wextra -ggdb
+CC = cc
+LUAJIT = ./fennel/luajit/src/luajit
+FENNEL = ./fennel/fennel
 
-all: zeno
+run: $(FENNEL)
+	$(FENNEL) zeno.fnl $(ARGS)
 
-zeno: zeno.c
-	$(CC) $(CFLAGS) -o $@ $<
+./fennel:
+	git clone --depth=1 --recurse-submodules=luajit https://git.sr.ht/~technomancy/fennel
+
+./fennel/luajit/src/luajit: ./fennel
+	MACOSX_DEPLOYMENT_TARGET=15.6 make -C ./fennel/luajit CC=$(CC) -j4
+
+./fennel/fennel: ./fennel ./fennel/luajit/src/luajit
+	make -C ./fennel LUA="$$PWD/fennel/luajit/src/luajit"
 
 clean:
-	rm -rf zeno zeno.o zeno.dSYM
+	rm -rf ./fennel
 
-.PHONY: all clean
+.PHONY: run clean
