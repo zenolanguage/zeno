@@ -18,14 +18,13 @@ Big Ideas™
 Requirements
 ------------
 
-* c99 compiler
+* Python 3.9+
 
 Building
 --------
 
 ```sh
-cc -o zeno zeno.c # unix
-cl zeno.c # windows
+python3 zeno.py [file.z]
 ```
 
 Builtins
