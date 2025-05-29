@@ -18,37 +18,32 @@ Big Ideas™
 Requirements
 ------------
 
-* Python 3.9+
+* Imagination
 
 Building
 --------
 
 ```sh
-python3 zeno.py [file.z]
 ```
 
 Builtins
 --------
 
-* $define, $define-caller
-* $declare, $declare-caller
-* $assign, $assign-caller
-* $field, $field-caller
-* $break, $break-caller
-* $continue, $continue-caller
-* $defer, $defer-caller
-* $return, $return-caller
-* $if, $for, $while
-* $proc, $macro, $foreign, $block
-* $code, $code-of, $code-node-of
-* $type, $type-of, $type-info-of, $cast
-* $quote, $unquote, $insert, $compiles?
-* $rest, $splice
-* $using, $import
-* $address-of, $contents-of
+* $define
+* $field
+* $break
+* $defer
+* $if
+* $while
+* $proc
+* $bytes
+* $type
+* $type-of
+* $type-info
+* $cast
+* $code
+* $insert
 * $operator
-* $assert
-* $compiler
 
 Inspired by
 -----------
