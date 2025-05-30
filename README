@@ -26,24 +26,36 @@ Building
 ```sh
 ```
 
+Grammar
+-------
+
+```cabnf
+IDENTIFIER = (UVCHAR && !'(' && !')' && !'"') (UVCHAR && !'(' && !')')*
+KEYWORD = '#' (UVCHAR && !'(' && !')')*
+NUMBER = ['+' / '-'] DIGIT+ ['.' DIGIT*]
+STRING = '"' ('\\' '"' / UCHAR*) '"'
+
+string = IDENTIFIER / KEYWORD / STRING
+number = NUMBER
+tuple = '(' UWSP* (code UWSP+)* [code] ')'
+code = string / number / tuple
+```
+
 Builtins
 --------
 
 * $define
-* $field
-* $break
-* $defer
-* $if
-* $while
-* $proc
-* $bytes
-* $type
-* $type-of
-* $type-info
-* $cast
 * $code
 * $insert
+
+* $if
+* $proc
 * $operator
+
+* $type
+* $type-of
+* $field
+* $cast
 
 Inspired by
 -----------
