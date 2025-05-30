@@ -15,32 +15,6 @@ Big Ideas™
 * The user will be given the path to the compiler at compile time.
 * Compile-time variables modify what code is generated throughout interpretation of the program and are compiled out of the native executable.
 
-Requirements
-------------
-
-* Imagination
-
-Building
---------
-
-```sh
-```
-
-Grammar
--------
-
-```cabnf
-IDENTIFIER = (UVCHAR && !'(' && !')' && !'"') (UVCHAR && !'(' && !')')*
-KEYWORD = '#' (UVCHAR && !'(' && !')')*
-NUMBER = ['+' / '-'] DIGIT+ ['.' DIGIT*]
-STRING = '"' ('\\' '"' / UCHAR*) '"'
-
-string = IDENTIFIER / KEYWORD / STRING
-number = NUMBER
-tuple = '(' UWSP* (code UWSP+)* [code] ')'
-code = string / number / tuple
-```
-
 Builtins
 --------
 
