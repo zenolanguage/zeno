@@ -15,13 +15,16 @@ Big Ideas™
 * The user will be given the path to the compiler at compile time.
 * Compile-time variables modify what code is generated throughout interpretation of the program and are compiled out of the native executable.
 
-Building
+Requirements
+------------
+
+* Odin
+
+Running
 -------
 
-```console
-$ jai -version
-Version: beta 0.2.014, built on 24 May 2025.
-$ jai zeno.jai [- file.z]
+```sh
+odin run . [-- file.z]
 ```
 
 Builtins
