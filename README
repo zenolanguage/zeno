@@ -15,20 +15,13 @@ Big Ideas™
 * The user will be given the path to the compiler at compile time.
 * Compile-time variables modify what code is generated throughout interpretation of the program and are compiled out of the native executable.
 
-Requirements
-------------
-
-* c99 compiler
-
 Building
 -------
 
-```sh
-cc -o zeno zeno.c # unix
-cl zeno.c # windows
-
-# or if you want to contribute
-./build.sh run
+```console
+$ jai -version
+Version: beta 0.2.014, built on 24 May 2025.
+$ jai zeno.jai [- file.z]
 ```
 
 Builtins
