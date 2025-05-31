@@ -124,12 +124,44 @@ Type_Kind :: enum {
   TYPE,
   CODE,
   ANY,
+  NULL,
   VOID,
+  BOOL,
+  COMPTIME_NUMBER,
+  INTEGER,
+  POINTER,
+  ARRAY,
   PROCEDURE,
 }
 
 Type :: struct {
   kind: Type_Kind,
+}
+
+Type_Integer :: struct {
+  using base: Type,
+  bits: u8,
+  signed: bool,
+}
+
+Type_Pointer_Kind :: enum {
+  ONE,
+  MANY,
+  SLICE,
+}
+
+Type_Pointer :: struct {
+  using base: Type,
+  pointer_kind: Type_Pointer_Kind,
+  child: ^Type,
+  sentinel: ^Value,
+}
+
+Type_Array :: struct {
+  using base: Type,
+  child: ^Type,
+  count: uintptr,
+  sentinel: ^Value,
 }
 
 Type_Procedure :: struct {
@@ -142,14 +174,24 @@ Type_Procedure :: struct {
 type_type: ^Type
 type_code: ^Type
 type_any: ^Type
+type_null: ^Type
 type_void: ^Type
+type_bool: ^Type
+type_comptime_number: ^Type
+type_u8: ^Type
+type_pointers: [dynamic]Type_Pointer
+type_arrays: [dynamic]Type_Array
 type_procedures: [dynamic]Type_Procedure
 
 init_global_types :: proc() {
   type_type = New(Type{.TYPE})
   type_code = New(Type{.CODE})
   type_any = New(Type{.ANY})
+  type_null = New(Type{.NULL})
   type_void = New(Type{.VOID})
+  type_bool = New(Type{.BOOL})
+  type_comptime_number = New(Type{.COMPTIME_NUMBER})
+  type_u8 = New(Type_Integer{{.INTEGER}, 8, false})
 }
 
 get_procedure_type :: proc(return_type: ^Type, parameter_types: []^Type, is_macro := false) -> ^Type_Procedure {
@@ -164,10 +206,66 @@ get_procedure_type :: proc(return_type: ^Type, parameter_types: []^Type, is_macr
   return &type_procedures[len(type_procedures) - 1]
 }
 
+get_array_type :: proc(child: ^Type, count: uintptr, sentinel: ^Value = nil) -> ^Type_Array {
+  key := Type_Array{{.ARRAY}, child, count, sentinel}
+  for &type_array in type_arrays {
+    if type_array.child != key.child do continue
+    if type_array.count != key.count do continue
+    if is_equal(type_array.sentinel, key.sentinel) do continue
+    return &type_array
+  }
+  append(&type_arrays, key)
+  return &type_arrays[len(type_arrays) - 1]
+}
+
+get_pointer_type :: proc(kind: Type_Pointer_Kind, child: ^Type, sentinel: ^Value = nil) -> ^Type_Pointer {
+  key := Type_Pointer{{.POINTER}, kind, child, sentinel}
+  for &type_pointer in type_pointers {
+    if type_pointer.kind != key.kind do continue
+    if type_pointer.child != key.child do continue
+    if is_equal(type_pointer.sentinel, key.sentinel) do continue
+    return &type_pointer
+  }
+  append(&type_pointers, key)
+  return &type_pointers[len(type_pointers) - 1]
+}
+
 type_as_string :: proc(type: ^Type) -> string {
   if type.kind == .TYPE do return "($type ($code TYPE))"
   if type.kind == .CODE do return "($type ($code CODE))"
   if type.kind == .VOID do return "($type ($code VOID))"
+  if type.kind == .BOOL do return "($type ($code BOOL))"
+  if type.kind == .COMPTIME_NUMBER do return "($type ($code COMPTIME_NUMBER))"
+  if type.kind == .INTEGER {
+    type_integer := cast(^Type_Integer) type
+    return fmt.tprintf("($type ($code INTEGER) #bits %d #signed ($cast ($type ($code BOOL)) %d))", type_integer.bits, 1 if type_integer.signed else 0)
+  }
+  if type.kind == .POINTER {
+    type_pointer := cast(^Type_Pointer) type
+    b := strings.builder_make_none(context.temp_allocator)
+    fmt.sbprintf(&b, "($type ($code POINTER) #pointer_kind ")
+    switch type_pointer.pointer_kind {
+      case .ONE: fmt.sbprintf(&b, "($code ONE)")
+      case .MANY: fmt.sbprintf(&b, "($code MANY)")
+      case .SLICE: fmt.sbprintf(&b, "($code SLICE)")
+    }
+    fmt.sbprintf(&b, " #child %s", type_as_string(type_pointer.child))
+    if type_pointer.sentinel != nil {
+      fmt.sbprintf(&b, " #sentinel %s", value_as_string(type_pointer.sentinel))
+    }
+    fmt.sbprintf(&b, ")")
+    return strings.to_string(b)
+  }
+  if type.kind == .ARRAY {
+    type_array := cast(^Type_Array) type
+    b := strings.builder_make_none(context.temp_allocator)
+    fmt.sbprintf(&b, "($type ($code ARRAY) #child %s #count %d", type_as_string(type_array.child), type_array.count)
+    if type_array.sentinel != nil {
+      fmt.sbprintf(&b, " #sentinel %s", value_as_string(type_array.sentinel))
+    }
+    fmt.sbprintf(&b, ")")
+    return strings.to_string(b)
+  }
   if type.kind == .PROCEDURE {
     type_proc := cast(^Type_Procedure) type
     b := strings.builder_make_none(context.temp_allocator)
@@ -179,7 +277,12 @@ type_as_string :: proc(type: ^Type) -> string {
     fmt.sbprintf(&b, ")")
     return strings.to_string(b)
   }
-  die("unimplemented %s\n", type.kind)
+  die("unimplemented str(%s)\n", type.kind)
+}
+
+is_coercible :: proc(from, to: ^Type) -> bool {
+  if from == to do return true
+  return false
 }
 
 Value :: struct {
@@ -187,14 +290,23 @@ Value :: struct {
   using data: struct #raw_union {
     as_type: ^Type,
     as_code: ^Code,
+    as_comptime_number: f64,
+    as_pointer: rawptr,
+    as_slice: []u8,
     as_procedure: proc(args: []^Value, calling_env: ^Env) -> (^Value, Evaluation_Error),
   },
 }
 
 value_void: ^Value
+value_true: ^Value
+value_false: ^Value
+value_null: ^Value
 
 init_global_values :: proc() {
   value_void = New(Value{type_void, {}})
+  value_true = New(Value{type_bool, {}})
+  value_false = New(Value{type_bool, {}})
+  value_null = New(Value{type_null, {}})
 }
 
 Env_Entry :: struct {
@@ -226,8 +338,10 @@ evaluate_code :: proc(code: ^Code, env: ^Env) -> (^Value, Evaluation_Error) {
       return entry.value, {ok=true}
     case .KEYWORD:
       return New(Value{type_code, {as_code=code}}), {ok=true}
-    case .NUMBER: die("NUMBER unimplemented.\n")
-    case .STRING: die("STRING unimplemented.\n")
+    case .NUMBER:
+      return New(Value{type_comptime_number, {as_comptime_number=code.as_number}}), {ok=true}
+    case .STRING:
+      return New(Value{get_pointer_type(.ONE, get_array_type(type_u8, uintptr(len(code.as_string) - 2), New(Value{type_comptime_number, {as_comptime_number=0}}))), {as_pointer=raw_data(code.as_string[1:])}}), {ok=true}
     case .TUPLE:
       op_code, arg_codes := code.as_tuple[0], code.as_tuple[1:]
       op, err := evaluate_code(op_code, env)
@@ -240,6 +354,7 @@ evaluate_code :: proc(code: ^Code, env: ^Env) -> (^Value, Evaluation_Error) {
       }
       args: [dynamic]^Value
       defer delete(args)
+      // TODO: handle keyword arguments
       for arg_code, i in arg_codes {
         if type_proc.is_macro && type_proc.parameter_types[i] == type_code do append(&args, New(Value{type_code, {as_code=arg_code}}))
         else {
@@ -253,6 +368,7 @@ evaluate_code :: proc(code: ^Code, env: ^Env) -> (^Value, Evaluation_Error) {
       }
       result, err2 := op.as_procedure(args[:], env)
       if !err2.ok do return nil, err2
+      if !is_coercible(result.type, type_proc.return_type) do return nil, {fmt.tprintf("Returned value of type \"%s\" was not coercible to return type \"%s\".", type_as_string(result.type), type_as_string(type_proc.return_type)), op_code, false}
       if type_proc.is_macro && type_proc.return_type == type_code && op != default_env.table["$code"].value {
         result2, err := evaluate_code(result.as_code, env)
         if !err.ok do return nil, err
@@ -267,6 +383,20 @@ value_as_string :: proc(value: ^Value) -> string {
   if value.type == type_type do return type_as_string(value.as_type)
   if value.type == type_code do return code_as_string(value.as_code)
   if value.type == type_void do return "($cast ($type ($code VOID)) 0)"
+  if value.type == type_comptime_number {
+    buf, err := new([32]u8, context.temp_allocator)
+    assert(err == nil)
+    return strconv.ftoa(buf[:], value.as_comptime_number, 'f', 8, 64)
+  }
+  if value.type.kind == .POINTER {
+    type_pointer := cast(^Type_Pointer) value.type
+    if type_pointer.pointer_kind == .ONE && type_pointer.child.kind == .ARRAY {
+      type_array := cast(^Type_Array) type_pointer.child
+      if type_array.child == type_u8 {
+        return fmt.tprintf("\"%s\"", strings.string_from_ptr(cast([^]u8) value.as_pointer, int(type_array.count)))
+      }
+    }
+  }
   if value.type.kind == .PROCEDURE {
     type_proc := cast(^Type_Procedure) value.type
     b := strings.builder_make_none(context.temp_allocator)
@@ -278,17 +408,36 @@ value_as_string :: proc(value: ^Value) -> string {
     fmt.sbprintf(&b, " TODO.body)")
     return strings.to_string(b)
   }
-  die("Unimplemented %s\n", value.type.kind)
+  die("Unimplemented str(%s)\n", value.type.kind)
+}
+
+is_equal :: proc(a, b: ^Value) -> bool {
+  if a.type.kind == .COMPTIME_NUMBER && b.type.kind == .COMPTIME_NUMBER do return a.as_comptime_number == b.as_comptime_number
+  die("unimplemented %s == %s\n", a.type.kind, b.type.kind)
+}
+
+builtin_define :: proc(args: []^Value, calling_env: ^Env) -> (^Value, Evaluation_Error) {
+  name, value := args[0], args[1]
+  if name.as_code.kind != .IDENTIFIER do return nil, {"$define expects a Code.IDENTIFIER as its first argument.", name.as_code, false}
+  if name.as_code.as_string in calling_env.table do return nil, {"$define is not allowed to redefine a variable in the same scope.", name.as_code, false}
+  calling_env.table[name.as_code.as_string] = Env_Entry{value}
+  return value_void, {ok=true}
 }
 
 builtin_code :: proc(args: []^Value, calling_env: ^Env) -> (^Value, Evaluation_Error) {
   return args[0], {ok=true}
 }
 
+builtin_type_of :: proc(args: []^Value, calling_env: ^Env) -> (^Value, Evaluation_Error) {
+  return New(Value{type_type, {as_type=args[0].type}}), {ok=true}
+}
+
 default_env: Env
 
 init_default_env :: proc() {
+  default_env.table["$define"] = {New(Value{get_procedure_type(type_void, {type_code, type_any}), {as_procedure=builtin_define}})}
   default_env.table["$code"] = {New(Value{get_procedure_type(type_code, {type_code}, is_macro=true), {as_procedure=builtin_code}})}
+  default_env.table["$type-of"] = {New(Value{get_procedure_type(type_type, {type_any}), {as_procedure=builtin_type_of}})}
 }
 
 repl :: proc() {
